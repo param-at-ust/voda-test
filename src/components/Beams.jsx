@@ -56,23 +56,27 @@ const Beams = ({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      // Heavy blur creates the soft volumetric light-shaft look
-      // beamHeight maps to blur radius
-      const blurPx = beamHeight * 3.5;
+      // Moderate blur — softens edges but preserves shaft body
+      const blurPx = beamHeight * 1.2;
       ctx.filter = `blur(${blurPx}px)`;
-      ctx.globalCompositeOperation = 'screen';
+      ctx.globalCompositeOperation = 'lighter';
 
       const rotRad = (rotation * Math.PI) / 180;
       const cosR = Math.cos(rotRad);
       const sinR = Math.sin(rotRad);
 
-      // Cover a large diagonal area so beams continuously flow across
-      const coverageMult = 2 + scale * 6;
-      const diag = Math.sqrt(W * W + H * H);
-      const totalCoverage = diag * coverageMult;
-      const spacing = totalCoverage / beamNumber;
+      // Perpendicular direction
+      const cosP = -sinR;
+      const sinP = cosR;
 
-      const offsetBase = totalTimeRef.current * speed * 25;
+      // Coverage: tighter so more beams are visible at once
+      const diag = Math.sqrt(W * W + H * H);
+      const coverageMult = 1.2 + scale * 3;
+      const totalCoverage = diag * coverageMult;
+
+      // Animated drift along the diagonal
+      const driftSpeed = speed * 18;
+      const offsetBase = totalTimeRef.current * driftSpeed;
 
       for (let i = 0; i < beamNumber; i++) {
         if (noiseOffsets.current[i] === undefined) {
@@ -82,58 +86,64 @@ const Beams = ({
         const noise = noiseOffsets.current[i];
         const t = i / beamNumber;
 
-        // Position along the diagonal axis, wrapping for continuous flow
+        // Position along diagonal, wrapping for infinite loop
         const rawPos = t * totalCoverage + offsetBase;
-        const basePos = ((rawPos % totalCoverage) + totalCoverage) % totalCoverage - totalCoverage * 0.3;
+        const wrappedPos = rawPos % totalCoverage;
+        const basePos = wrappedPos - totalCoverage * 0.15;
 
-        // Thin actual stroke width (blur makes it appear wide)
-        const widthNoise = 0.6 + 0.4 * Math.sin(noise + totalTimeRef.current * speed * 0.4);
-        const strokeW = Math.max(1.5, beamWidth * 2.5 * widthNoise);
+        // Broad shaft width (actual geometry, not just stroke width)
+        const widthNoise = 0.5 + 0.5 * Math.sin(noise + totalTimeRef.current * speed * 0.35);
+        const shaftWidth = Math.max(24, beamWidth * 28 * widthNoise);
 
-        // Low alpha per beam — overlapping beams add up via screen compositing
-        const alphaNoise = 0.5 + 0.5 * Math.sin(noise + totalTimeRef.current * speed * 0.2);
-        const baseAlpha = (0.07 + 0.04 * alphaNoise) * (1 + scale);
+        // Alpha: clearly visible but not overwhelming
+        const alphaNoise = 0.5 + 0.5 * Math.sin(noise + totalTimeRef.current * speed * 0.25);
+        const alpha = 0.18 + 0.12 * alphaNoise;
 
-        // Slight wobble perpendicular to beam direction
-        const wobble = Math.sin(noise + totalTimeRef.current * speed * 1.8) * noiseIntensity * 3;
+        // Perpendicular wobble
+        const wobble = Math.sin(noise + totalTimeRef.current * speed * 1.5) * noiseIntensity * 5;
 
-        // Perpendicular direction
-        const cosP = -sinR;
-        const sinP = cosR;
+        // Center of the shaft
+        const cx = W / 2 + cosR * basePos + gyroX * 5;
+        const cy = H / 2 + sinR * basePos + gyroY * 5;
 
-        // Beam center point
-        const cx = W / 2 + cosR * basePos + gyroX * 6;
-        const cy = H / 2 + sinR * basePos + gyroY * 6;
+        // Extend far beyond viewport
+        const extent = Math.max(W, H) * 2;
 
-        // Extend far beyond viewport along rotation axis
-        const extent = Math.max(W, H) * 2.5;
+        // Four corners of the shaft quad
+        const hw = shaftWidth / 2;
+        const wx = cosP * (hw + wobble);
+        const wy = sinP * (hw + wobble);
 
-        // Line endpoints with perpendicular offset for wobble
-        const x1 = cx + cosP * wobble - cosR * extent;
-        const y1 = cy + sinP * wobble - sinR * extent;
-        const x2 = cx + cosP * wobble + cosR * extent;
-        const y2 = cy + sinP * wobble + sinR * extent;
+        // Front edge
+        const fcx = cx + cosR * extent;
+        const fcy = cy + sinR * extent;
+        // Back edge
+        const bcx = cx - cosR * extent;
+        const bcy = cy - sinR * extent;
 
-        // Create gradient along the line (brighter in center, fade at ends)
-        const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+        // Perpendicular gradient: bright center → transparent edges
+        const grad = ctx.createLinearGradient(
+          cx + cosP * hw, cy + sinP * hw,
+          cx - cosP * hw, cy - sinP * hw
+        );
         grad.addColorStop(0, `rgba(${color.r},${color.g},${color.b},0)`);
-        grad.addColorStop(0.15, `rgba(${color.r},${color.g},${color.b},${baseAlpha * 0.5})`);
-        grad.addColorStop(0.5, `rgba(${color.r},${color.g},${color.b},${baseAlpha})`);
-        grad.addColorStop(0.85, `rgba(${color.r},${color.g},${color.b},${baseAlpha * 0.5})`);
+        grad.addColorStop(0.25, `rgba(${color.r},${color.g},${color.b},${alpha * 0.4})`);
+        grad.addColorStop(0.5, `rgba(${color.r},${color.g},${color.b},${alpha})`);
+        grad.addColorStop(0.75, `rgba(${color.r},${color.g},${color.b},${alpha * 0.4})`);
         grad.addColorStop(1, `rgba(${color.r},${color.g},${color.b},0)`);
 
+        ctx.fillStyle = grad;
         ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.lineWidth = strokeW;
-        ctx.strokeStyle = grad;
-        ctx.lineCap = 'round';
-        ctx.stroke();
+        ctx.moveTo(bcx + wx, bcy + wy);
+        ctx.lineTo(fcx + wx, fcy + wy);
+        ctx.lineTo(fcx - wx, fcy - wy);
+        ctx.lineTo(bcx - wx, bcy - wy);
+        ctx.closePath();
+        ctx.fill();
 
-        noiseOffsets.current[i] += (Math.random() - 0.5) * noiseIntensity * 0.003;
+        noiseOffsets.current[i] += (Math.random() - 0.5) * noiseIntensity * 0.004;
       }
 
-      // Reset
       ctx.filter = 'none';
       ctx.globalCompositeOperation = 'source-over';
 
