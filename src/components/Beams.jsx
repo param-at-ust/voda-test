@@ -56,11 +56,6 @@ const Beams = ({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      // Moderate blur — softens edges but preserves shaft body
-      const blurPx = beamHeight * 1.2;
-      ctx.filter = `blur(${blurPx}px)`;
-      ctx.globalCompositeOperation = 'lighter';
-
       const rotRad = (rotation * Math.PI) / 180;
       const cosR = Math.cos(rotRad);
       const sinR = Math.sin(rotRad);
@@ -69,79 +64,140 @@ const Beams = ({
       const cosP = -sinR;
       const sinP = cosR;
 
-      // Coverage: tighter so more beams are visible at once
       const diag = Math.sqrt(W * W + H * H);
-      const coverageMult = 1.2 + scale * 3;
-      const totalCoverage = diag * coverageMult;
 
-      // Animated drift along the diagonal
-      const driftSpeed = speed * 18;
-      const offsetBase = totalTimeRef.current * driftSpeed;
+      // === LAYER 1: Background faint beams ===
+      {
+        const count = Math.floor(beamNumber * 0.6); // 14 background beams
+        const coverage = diag * (0.8 + scale * 2); // Tight coverage
+        const blurPx = beamHeight * 0.9; // ~13px blur
 
-      for (let i = 0; i < beamNumber; i++) {
-        if (noiseOffsets.current[i] === undefined) {
-          noiseOffsets.current[i] = Math.random() * Math.PI * 2;
+        ctx.filter = `blur(${blurPx}px)`;
+        ctx.globalCompositeOperation = 'source-over';
+
+        const drift = totalTimeRef.current * speed * 12;
+
+        for (let i = 0; i < count; i++) {
+          if (noiseOffsets.current[i] === undefined) {
+            noiseOffsets.current[i] = Math.random() * Math.PI * 2;
+          }
+          const noise = noiseOffsets.current[i];
+
+          const rawPos = (i / count) * coverage + drift;
+          const pos = rawPos % coverage;
+
+          // Width: 8-18px (narrow)
+          const wMod = 0.5 + 0.5 * Math.sin(noise + totalTimeRef.current * speed * 0.3);
+          const shaftW = Math.max(8, beamWidth * 10 * wMod);
+
+          // Alpha: very subtle 0.03-0.06
+          const aMod = 0.5 + 0.5 * Math.sin(noise + totalTimeRef.current * speed * 0.2);
+          const alpha = 0.03 + 0.03 * aMod;
+
+          const wobble = Math.sin(noise + totalTimeRef.current * speed) * noiseIntensity * 3;
+
+          const cx = W / 2 + cosR * (pos - coverage * 0.3) + gyroX * 4;
+          const cy = H / 2 + sinR * (pos - coverage * 0.3) + gyroY * 4;
+
+          const extent = Math.max(W, H) * 2;
+          const hw = shaftW / 2;
+          const wx = cosP * (hw + wobble);
+          const wy = sinP * (hw + wobble);
+
+          const fcx = cx + cosR * extent;
+          const fcy = cy + sinR * extent;
+          const bcx = cx - cosR * extent;
+          const bcy = cy - sinR * extent;
+
+          const grad = ctx.createLinearGradient(
+            cx + cosP * hw, cy + sinP * hw,
+            cx - cosP * hw, cy - sinP * hw
+          );
+          grad.addColorStop(0, `rgba(${color.r},${color.g},${color.b},0)`);
+          grad.addColorStop(0.3, `rgba(${color.r},${color.g},${color.b},${alpha * 0.5})`);
+          grad.addColorStop(0.5, `rgba(${color.r},${color.g},${color.b},${alpha})`);
+          grad.addColorStop(0.7, `rgba(${color.r},${color.g},${color.b},${alpha * 0.5})`);
+          grad.addColorStop(1, `rgba(${color.r},${color.g},${color.b},0)`);
+
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(bcx + wx, bcy + wy);
+          ctx.lineTo(fcx + wx, fcy + wy);
+          ctx.lineTo(fcx - wx, fcy - wy);
+          ctx.lineTo(bcx - wx, bcy - wy);
+          ctx.closePath();
+          ctx.fill();
+
+          noiseOffsets.current[i] += (Math.random() - 0.5) * noiseIntensity * 0.003;
         }
+      }
 
-        const noise = noiseOffsets.current[i];
-        const t = i / beamNumber;
+      // === LAYER 2: Foreground brighter beams ===
+      {
+        const count = Math.floor(beamNumber * 0.5); // 12 foreground beams
+        const coverage = diag * (0.7 + scale * 2);
+        const blurPx = beamHeight * 0.7; // ~10px blur
 
-        // Position along diagonal, wrapping for infinite loop
-        const rawPos = t * totalCoverage + offsetBase;
-        const wrappedPos = rawPos % totalCoverage;
-        const basePos = wrappedPos - totalCoverage * 0.15;
+        ctx.filter = `blur(${blurPx}px)`;
+        ctx.globalCompositeOperation = 'lighter';
 
-        // Broad shaft width (actual geometry, not just stroke width)
-        const widthNoise = 0.5 + 0.5 * Math.sin(noise + totalTimeRef.current * speed * 0.35);
-        const shaftWidth = Math.max(24, beamWidth * 28 * widthNoise);
+        const drift = totalTimeRef.current * speed * 18;
+        const offset = coverage * 0.5; // Offset from background layer
 
-        // Alpha: clearly visible but not overwhelming
-        const alphaNoise = 0.5 + 0.5 * Math.sin(noise + totalTimeRef.current * speed * 0.25);
-        const alpha = 0.18 + 0.12 * alphaNoise;
+        for (let i = 0; i < count; i++) {
+          const idx = 100 + i; // Separate noise index
+          if (noiseOffsets.current[idx] === undefined) {
+            noiseOffsets.current[idx] = Math.random() * Math.PI * 2;
+          }
+          const noise = noiseOffsets.current[idx];
 
-        // Perpendicular wobble
-        const wobble = Math.sin(noise + totalTimeRef.current * speed * 1.5) * noiseIntensity * 5;
+          const rawPos = (i / count) * coverage + drift + offset;
+          const pos = rawPos % coverage;
 
-        // Center of the shaft
-        const cx = W / 2 + cosR * basePos + gyroX * 5;
-        const cy = H / 2 + sinR * basePos + gyroY * 5;
+          // Width: 12-28px (medium)
+          const wMod = 0.5 + 0.5 * Math.sin(noise + totalTimeRef.current * speed * 0.4);
+          const shaftW = Math.max(12, beamWidth * 16 * wMod);
 
-        // Extend far beyond viewport
-        const extent = Math.max(W, H) * 2;
+          // Alpha: 0.06-0.12 (visible but not overwhelming)
+          const aMod = 0.5 + 0.5 * Math.sin(noise + totalTimeRef.current * speed * 0.25);
+          const alpha = 0.06 + 0.06 * aMod;
 
-        // Four corners of the shaft quad
-        const hw = shaftWidth / 2;
-        const wx = cosP * (hw + wobble);
-        const wy = sinP * (hw + wobble);
+          const wobble = Math.sin(noise + totalTimeRef.current * speed * 1.3) * noiseIntensity * 4;
 
-        // Front edge
-        const fcx = cx + cosR * extent;
-        const fcy = cy + sinR * extent;
-        // Back edge
-        const bcx = cx - cosR * extent;
-        const bcy = cy - sinR * extent;
+          const cx = W / 2 + cosR * (pos - coverage * 0.2) + gyroX * 6;
+          const cy = H / 2 + sinR * (pos - coverage * 0.2) + gyroY * 6;
 
-        // Perpendicular gradient: bright center → transparent edges
-        const grad = ctx.createLinearGradient(
-          cx + cosP * hw, cy + sinP * hw,
-          cx - cosP * hw, cy - sinP * hw
-        );
-        grad.addColorStop(0, `rgba(${color.r},${color.g},${color.b},0)`);
-        grad.addColorStop(0.25, `rgba(${color.r},${color.g},${color.b},${alpha * 0.4})`);
-        grad.addColorStop(0.5, `rgba(${color.r},${color.g},${color.b},${alpha})`);
-        grad.addColorStop(0.75, `rgba(${color.r},${color.g},${color.b},${alpha * 0.4})`);
-        grad.addColorStop(1, `rgba(${color.r},${color.g},${color.b},0)`);
+          const extent = Math.max(W, H) * 2;
+          const hw = shaftW / 2;
+          const wx = cosP * (hw + wobble);
+          const wy = sinP * (hw + wobble);
 
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.moveTo(bcx + wx, bcy + wy);
-        ctx.lineTo(fcx + wx, fcy + wy);
-        ctx.lineTo(fcx - wx, fcy - wy);
-        ctx.lineTo(bcx - wx, bcy - wy);
-        ctx.closePath();
-        ctx.fill();
+          const fcx = cx + cosR * extent;
+          const fcy = cy + sinR * extent;
+          const bcx = cx - cosR * extent;
+          const bcy = cy - sinR * extent;
 
-        noiseOffsets.current[i] += (Math.random() - 0.5) * noiseIntensity * 0.004;
+          const grad = ctx.createLinearGradient(
+            cx + cosP * hw, cy + sinP * hw,
+            cx - cosP * hw, cy - sinP * hw
+          );
+          grad.addColorStop(0, `rgba(${color.r},${color.g},${color.b},0)`);
+          grad.addColorStop(0.25, `rgba(${color.r},${color.g},${color.b},${alpha * 0.5})`);
+          grad.addColorStop(0.5, `rgba(${color.r},${color.g},${color.b},${alpha})`);
+          grad.addColorStop(0.75, `rgba(${color.r},${color.g},${color.b},${alpha * 0.5})`);
+          grad.addColorStop(1, `rgba(${color.r},${color.g},${color.b},0)`);
+
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(bcx + wx, bcy + wy);
+          ctx.lineTo(fcx + wx, fcy + wy);
+          ctx.lineTo(fcx - wx, fcy - wy);
+          ctx.lineTo(bcx - wx, bcy - wy);
+          ctx.closePath();
+          ctx.fill();
+
+          noiseOffsets.current[idx] += (Math.random() - 0.5) * noiseIntensity * 0.004;
+        }
       }
 
       ctx.filter = 'none';
