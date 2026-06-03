@@ -14,7 +14,7 @@ import OTPEntry from './components/onboarding/OTPEntry';
 // 'splash' — branded splash with Sign Up CTA
 // 'mobile' — mobile number entry with geo country code
 // 'otp'    — 6-digit verification (mock: 123456)
-// 'home'   — main app / marketing page
+// 'home'   — main app
 
 export default function App() {
   const { tiltX, tiltY } = useGyro({ maxOffset: 8, maxAngle: 3, smoothFactor: 0.08 });
@@ -25,16 +25,58 @@ export default function App() {
     <div className="relative w-full h-full">
       <BeamsBackground tiltX={tiltX} tiltY={tiltY} />
 
-      <div className="flex flex-col items-center w-full pt-6">
-        <HeroSection />
-      </div>
+      <AnimatePresence mode="wait">
+        {step === 'splash' && (
+          <div key="splash" className="absolute inset-0 flex flex-col items-center justify-between">
+            <SplashScreen onSignUp={() => setStep('mobile')} />
+          </div>
+        )}
 
-      <DataWidget />
+        {step === 'mobile' && (
+          <div key="mobile" className="absolute inset-0 flex flex-col">
+            <MobileEntry
+              onBack={() => setStep('splash')}
+              onContinue={(data) => {
+                setPhoneData(data);
+                setStep('otp');
+              }}
+            />
+          </div>
+        )}
 
-      <div className="w-full flex flex-col items-center">
-        <AIChatPlaceholder />
-        <DomainPills />
-      </div>
+        {step === 'otp' && (
+          <div key="otp" className="absolute inset-0 flex flex-col">
+            <OTPEntry
+              country={phoneData?.country}
+              phone={phoneData?.phone}
+              onBack={() => setStep('mobile')}
+              onVerified={() => setStep('home')}
+            />
+          </div>
+        )}
+
+        {step === 'home' && (
+          <div
+            key="home"
+            className="absolute inset-0 flex flex-col items-center justify-between"
+            style={{
+              paddingTop: 'max(env(safe-area-inset-top), 24px)',
+              paddingBottom: 'max(env(safe-area-inset-bottom), 20px)',
+            }}
+          >
+            <div className="flex flex-col items-center w-full pt-6">
+              <HeroSection />
+            </div>
+
+            <DataWidget />
+
+            <div className="w-full flex flex-col items-center">
+              <AIChatPlaceholder />
+              <DomainPills />
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
