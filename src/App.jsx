@@ -3,6 +3,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useGyro } from './hooks/useGyro';
 import BeamsBackground from './components/BeamsBackground';
 import HeroSection from './components/HeroSection';
+import DataWidget from './components/DataWidget';
 import AIChatPlaceholder from './components/AIChatPlaceholder';
 import DomainPills from './components/DomainPills';
 import SplashScreen from './components/onboarding/SplashScreen';
@@ -63,9 +64,12 @@ export default function App() {
               paddingBottom: 'max(env(safe-area-inset-bottom), 20px)',
             }}
           >
-            <div className="flex-1 flex items-center justify-center w-full">
+            <div className="flex flex-col items-center w-full pt-6">
               <HeroSection />
             </div>
+
+            <DataWidget />
+
             <div className="w-full flex flex-col items-center">
               <AIChatPlaceholder />
               <DomainPills />
